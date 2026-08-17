@@ -1,20 +1,40 @@
-const KEY = "/api/kv/pg-outpost:progress";
+const KEY = "outpost:progress";
 
-export async function loadProgress(fetcher = fetch) {
+export const EMPTY_PROGRESS = {
+  best: 0,
+  wins: 0,
+  plays: 0,
+  updatedAt: null,
+};
+
+export function mergeProgress(previous, state, now = new Date()) {
+  const base = { ...EMPTY_PROGRESS, ...(previous ?? {}) };
+  const score = Number(state?.score ?? 0);
+  return {
+    ...base,
+    best: Math.max(base.best, score),
+    wins: base.wins + (state?.outcome === "won" ? 1 : 0),
+    plays: base.plays + (state?.outcome !== "playing" ? 1 : 0),
+    updatedAt: now.toISOString(),
+    last: state?.outcome !== "playing" ? { score, outcome: state.outcome, day: state.day } : base.last,
+  };
+}
+
+export async function loadProgress() {
   try {
-    const res = await fetcher(KEY);
-    if (!res.ok) return {};
-    const text = await res.text();
-    if (!text) return {};
-    return JSON.parse(text);
+    await globalThis.PG.ready;
+    const raw = await globalThis.PG.kv.get(KEY);
+    if (!raw) return { ...EMPTY_PROGRESS };
+    return { ...EMPTY_PROGRESS, ...JSON.parse(raw) };
   } catch {
-    return {};
+    return { ...EMPTY_PROGRESS };
   }
 }
 
-export async function saveProgress(data, fetcher = fetch) {
+export async function saveProgress(payload, onError) {
   try {
-    await fetcher(KEY, { method: "PUT", body: JSON.stringify(data) });
-  } catch {}
-  return data;
+    await globalThis.PG.kv.put(KEY, JSON.stringify(payload));
+  } catch (error) {
+    onError?.(error);
+  }
 }
